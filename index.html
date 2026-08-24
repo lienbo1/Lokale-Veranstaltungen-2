@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#185f91">
+<link rel="manifest" href="/manifest.webmanifest">
+<title>Lokale Veranstaltungen</title>
+<style>
+:root{--bg:#f5f7fa;--card:#fff;--text:#17202d;--muted:#667085;--accent:#185f91;--soft:#e8f2f8;--border:#dde4ec}
+*{box-sizing:border-box} body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--bg);color:var(--text)}
+main{max-width:760px;margin:auto;padding:16px 14px 40px}.hero{text-align:center;padding:14px 4px}.hero div{font-size:42px}h1{font-size:27px;margin:4px 0}.sub{margin:0;color:var(--muted)}
+.card{background:var(--card);border:1px solid var(--border);border-radius:20px;padding:16px;margin-top:14px;box-shadow:0 8px 22px rgba(30,50,70,.06)}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}@media(max-width:540px){.grid{grid-template-columns:1fr}}
+label{display:block;font-weight:700;margin:7px 0 5px}input,select{width:100%;font:inherit;padding:12px;border:1px solid var(--border);border-radius:12px;background:white}
+button{font:inherit;font-weight:750;border:0;border-radius:12px;padding:12px 14px;cursor:pointer}.primary{width:100%;background:var(--accent);color:white;margin-top:12px}.ghost{background:white;border:1px solid var(--border)}
+.status{background:var(--soft);color:var(--accent);padding:12px;border-radius:12px;margin-top:12px}.error{background:#fff2dc;color:#794c00}.hidden{display:none}
+.head{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap}.small{font-size:13px;color:var(--muted)}
+.event{padding:15px 0;border-top:1px solid var(--border)}.event:first-of-type{border-top:0}.event h2{font-size:18px;margin:0 0 6px}.meta{font-size:14px;color:var(--muted);line-height:1.55}
+.badge{display:inline-block;margin-top:7px;background:var(--soft);color:var(--accent);border-radius:999px;padding:4px 8px;font-size:12px;font-weight:750}
+.event a{display:inline-block;margin-top:9px;text-decoration:none;background:var(--accent);color:white;padding:8px 10px;border-radius:10px;font-size:14px;font-weight:700}
+.pager{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:14px}.note{font-size:13px;color:var(--muted);line-height:1.45;margin-top:12px}.places{margin-top:8px;font-size:13px;color:var(--muted)}
+</style>
+</head>
+<body>
+<main>
+<section class="hero"><div>📍🎪</div><h1>Lokale Veranstaltungen</h1><p class="sub">Märkte, Feste, Flohmärkte & öffentliche Events aus lokalen Nachrichten.</p></section>
+
+<section class="card">
+<div class="grid">
+<div><label for="plz">Postleitzahl</label><input id="plz" inputmode="numeric" maxlength="5" placeholder="z. B. 45768"></div>
+<div><label for="radius">Umkreis</label><select id="radius"><option>10</option><option>25</option><option selected>50</option><option>75</option><option>100</option></select></div>
+</div>
+<div><label for="cat">Kategorie</label><select id="cat"><option value="">Alle lokalen Events</option><option>Flohmarkt</option><option>Markt</option><option>Stadtfest</option><option>Kirmes</option><option>Schützenfest</option><option>Familie</option><option>Verein</option><option>Shopping</option><option>Veranstaltung</option></select></div>
+<button id="search" class="primary">Lokale Veranstaltungen suchen</button>
+<div id="status" class="status hidden" aria-live="polite"></div>
+</section>
+
+<section id="results" class="card hidden">
+<div class="head"><strong id="headline">Veranstaltungen</strong><span id="count" class="small"></span></div>
+<div id="places" class="places"></div>
+<div id="list"></div>
+<div class="pager"><button id="prev" class="ghost">← Zurück</button><span id="page">Seite 1</span><button id="next" class="ghost">Weiter →</button></div>
+<p id="note" class="note"></p>
+</section>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+let page=0,totalPages=1,last={};
+function status(msg,err=false){$("status").textContent=msg;$("status").className="status"+(err?" error":"")}
+function clearStatus(){$("status").classList.add("hidden")}
+function fmtDate(s){if(!s)return null;return new Date(s+"T12:00:00").toLocaleDateString("de-DE",{weekday:"short",day:"2-digit",month:"2-digit",year:"numeric"})}
+function fmtPub(s){if(!s)return "";const d=new Date(s);return isNaN(d)?"":d.toLocaleDateString("de-DE")}
+function esc(s){return String(s||"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]))}
+async function load(useLast=false){
+  if(!useLast){
+    const plz=$("plz").value.trim(); if(!/^\d{5}$/.test(plz)){status("Bitte eine gültige fünfstellige PLZ eingeben.",true);return}
+    last={plz,radius:$("radius").value,category:$("cat").value}; page=0;
+  }
+  status("Durchsuche lokale Veranstaltungshinweise …");
+  try{
+    const q=new URLSearchParams({...last,page:String(page)});
+    const r=await fetch("/api/events?"+q); const data=await r.json();
+    if(!r.ok)throw new Error(data.error||"Suche fehlgeschlagen.");
+    totalPages=data.totalPages||1;
+    $("results").classList.remove("hidden");
+    $("headline").textContent="Events rund um "+data.center.name;
+    $("count").textContent=data.total+" gefundene Hinweise";
+    $("places").textContent="Einbezogene Orte: "+(data.searchedPlaces||[]).join(", ");
+    $("page").textContent="Seite "+(data.page+1)+" von "+totalPages;
+    $("prev").disabled=page<=0; $("next").disabled=page+1>=totalPages;
+    $("note").textContent=data.note||"";
+    $("list").innerHTML=data.events.length?data.events.map(e=>`
+      <article class="event">
+        <h2>${esc(e.title)}</h2>
+        <div class="meta">
+          ${e.eventDate?"📅 vermutlicher Termin: "+esc(fmtDate(e.eventDate))+"<br>":""}
+          📍 Bezug: ${esc(e.matchedPlace)}<br>
+          📰 Quelle: ${esc(e.source)}${e.published?" · veröffentlicht "+esc(fmtPub(e.published)):""}
+        </div>
+        <span class="badge">${esc(e.category)}</span><br>
+        <a href="${esc(e.url)}" target="_blank" rel="noopener">Originalquelle öffnen</a>
+      </article>`).join(""):'<p class="note">Keine passenden Veranstaltungshinweise gefunden. Versuche einen größeren Umkreis oder „Alle lokalen Events“.</p>';
+    clearStatus();
+  }catch(e){status(e.message,true)}
+}
+$("search").addEventListener("click",()=>load(false));
+$("prev").addEventListener("click",()=>{if(page>0){page--;load(true)}});
+$("next").addEventListener("click",()=>{if(page+1<totalPages){page++;load(true)}});
+
+if("serviceWorker" in navigator){navigator.serviceWorker.register("/sw.js").catch(()=>{});}
+</script>
+</body>
+</html>
